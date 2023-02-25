@@ -1,7 +1,14 @@
 ---
 title: "This is a work in progress"
 ---
+```{r setup}
+options(knitr.duplicate.label = "allow")
+```
 
 ```{r, child='about.Rmd'}
+
+```
+
+```{r, child = './projects/lung_survival/lung_survival.Rmd'}
 
 ```

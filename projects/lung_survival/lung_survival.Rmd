@@ -22,6 +22,10 @@ knitr::opts_chunk$set(
   warning = FALSE, 
   fig.height = 6, 
   fig.width = 8)
+
+
+file_name <- 'lung.csv'
+
 ```
 
 # Introduction
@@ -57,11 +61,8 @@ Data were examined for missing values, but no missing values were imputed. Confi
 # Data
 
 ```{r}
-
-data_dir <- './data'
-file_name <- 'lung.csv'
-dd_raw <- read.csv(file.path(data_dir, file_name))
-
+data(cancer, package="survival")
+dd_raw <- get(data("lung"))
 (dim(dd_raw))
 
 
