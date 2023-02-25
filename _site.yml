@@ -1,0 +1,16 @@
+name: "Garrett Miller"
+navbar:
+  title: "Garrett Miller"
+  left:
+  - text: "Home"
+    href: index.html
+  right:
+  - icon: fab fa-github fa-lg
+    href:  http://github.com/garrmiller
+  - icon: fas fa-envelope
+    href: mailto:<garrett.miller36@gmail.com>
+output:
+  html_document:
+    version: 5
+    bootswatch: flatly
+

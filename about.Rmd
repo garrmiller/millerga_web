@@ -1,0 +1,21 @@
+---
+title: "about"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## About
+
+I am an FSP statistician at Phastar, currently working at Takeda in preclinical and nonclinical vaccines.
+
+My research interests are in adaptive trial designs, that incorporate bayesian inference sampling methods for parameter estimation. I have also become interested in statistical methods for non-linear models such as auto differentiation for parameter estimation. 
+
+I earned my M.S. in Biostatistics from the University of Texas Health Science Center at Houston - School of Public Health, and earned my B.S. in Mathematics from North Carolina State University. I am currently working on a certificate in Applied Bioinformatics at UCSD Extended Studies. 
+
+## Contact
+
+You may reach me by email at [garrett.miller36@gmail.com](mailto:<garrett.miller36@gmail.com>)
+
+
