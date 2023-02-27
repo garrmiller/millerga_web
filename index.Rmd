@@ -9,6 +9,7 @@ options(knitr.duplicate.label = "allow")
 
 ```
 
-```{r, child = './projects/lung_survival/lung_survival.Rmd'}
 
-```
+## Test
+
+[**Survival analysis example**]("projects/lung_survival/survival_analysis_in_r_tutorial.html"): Test test test

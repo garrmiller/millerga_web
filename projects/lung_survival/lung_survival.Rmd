@@ -2,8 +2,8 @@
 title: "Lung Survival Example"
 author: "Garrett Miller"
 self_contained: true
-date: "`r kToday`"
-output: pdf_document
+date: ""
+output: html_document
 header-includes:
   - \usepackage{xcolor}
 ---
