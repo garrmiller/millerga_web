@@ -7,10 +7,6 @@ output: html_document
 header-includes:
   - \usepackage{xcolor}
 ---
-  
-body {
-  font-size: 14px;
-}
 
 ```{r setup, include=FALSE}
 library(dplyr)
@@ -240,13 +236,18 @@ chi_sq_metric_by_sex <- lapply(perform_metrics, function(metric) {
   res <- chisq.test(tab)
   data.frame(
     var = metric, 
-    p_val = res$p.value
+    p_val = round(res$p.value, 3)
   )
   
 })
 
 
-chi_sq_metric_by_sex
+# Combining list into dataframe
+chi_sq_metric_by_sex_dd <- do.call('rbind', chi_sq_metric_by_sex)
+
+chi_sq_metric_by_sex_dd %>%
+  kable(format = 'html') %>%
+  kable_styling(position = 'center')
 
 
 chi_sq_metric_by_status <- lapply(perform_metrics, function(metric) {
@@ -259,21 +260,25 @@ chi_sq_metric_by_status <- lapply(perform_metrics, function(metric) {
     filter(!is.na(get(metric))) %>%
     spread(status, n, fill = 0) %>%
     as.data.frame()
-  print(metric)
+  
   row.names(tab) <- as.character(tab[, 1])
   tab[, 1] <- NULL
   
   res <- chisq.test(tab)
   data.frame(
     var = metric, 
-    p_val = res$p.value
+    p_val = round(res$p.value, 3)
   )
   
 })
 
-chi_sq_metric_by_status
+chi_sq_metric_by_status_dd <- do.call("rbind", chi_sq_metric_by_status) 
 
+chi_sq_metric_by_status_dd %>% 
+  kable(format = 'html') %>%
+  kable_styling(position = 'center')
 
+  
 ```
 
 
@@ -515,7 +520,7 @@ kap_plot_left_trunc
 
 After including the subjects' age in the survival model, we see that the survival curves are almost completely overlapping. In addition, the log-rank test p-value shows that the Kaplan Meier curves are not significantly different. 
 
-## Independent Variable Hazard Ratios ----
+## Independent Variable Hazard Ratios
 
 Exploratory analyses revealed possible associations between survival status and performance metric variables. The performance metrics (measured both by physician and patient), were included in separate Cox proportional hazards models for each variable (as opposed to including all variables in one model, which might cause over fitting). The survival model accounted for left truncation. The variables Sex, Meal.cal, and wt.loss were included for completeness. Each performance metric was modeled as a ordinal variable, since the scales use discrete values when measured. Each hazard ratio is compared to lowest observed factor level (ph.ecog = 0, ph.karno = 50, pat.karno = 30).
 
@@ -546,7 +551,9 @@ dd %>%
   dplyr::summarise(n = sum(!is.na(value))) %>%
   spread(status, n) %>%
   arrange(name) %>%
-  filter(is.na(`0`) | is.na(`1`))
+  filter(is.na(`0`) | is.na(`1`)) %>%
+  kable(format = 'html') %>%
+  kable_styling()
 
 test_dd <- dd %>%
   mutate(ph.ecog = factor(ph.ecog, levels = c(0:2)))
