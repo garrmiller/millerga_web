@@ -10,6 +10,7 @@ options(knitr.duplicate.label = "allow")
 ```
 
 
-## Test
+# Projects
 
-[**Survival analysis example**]("projects/lung_survival/survival_analysis_in_r_tutorial.html"): Test test test
+[**Survival analysis example**](lung_survival.html): Analysis of Lung cancer dataset from the survival package
+
