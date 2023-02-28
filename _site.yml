@@ -1,4 +1,5 @@
 name: "Garrett Miller"
+output_dir: "docs"
 navbar:
   title: "Garrett Miller"
   left:
