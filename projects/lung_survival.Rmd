@@ -8,7 +8,11 @@ header-includes:
   - \usepackage{xcolor}
 ---
   
-  ```{r setup, include=FALSE}
+body {
+  font-size: 14px;
+}
+
+```{r setup, include=FALSE}
 library(dplyr)
 library(tidyr)
 library(ggplot2)
@@ -17,7 +21,7 @@ library(survminer)
 library(survival)
 
 knitr::opts_chunk$set(
-  echo = FALSE, 
+  echo = TRUE, 
   message = FALSE, 
   warning = FALSE, 
   fig.height = 6, 
@@ -30,7 +34,8 @@ file_name <- 'lung.csv'
 
 # Introduction
 
-The purpose of this report is to summarize the results from an analysis on the NCCTG Lung cancer data set `r file_name`. 
+The purpose of this report is to summarize the results from an analysis on the NCCTG Lung cancer data set ([documentation](https://stat.ethz.ch/R-manual/R-devel/library/survival/html/lung.html)). The dataset contains survival information on patients with advanced lung cancer from the North Central Cancer Treatment group and can be found in the *survival* package.
+
 
 # Variables
 
@@ -61,10 +66,12 @@ Data were examined for missing values, but no missing values were imputed. Confi
 # Data
 
 ```{r}
-data(cancer, package="survival")
+# Loading survival data from survival package
+data(lung, package="survival")
 dd_raw <- get(data("lung"))
-(dim(dd_raw))
 
+# Getting the dimensions of the data
+(dim(dd_raw))
 
 # Data prep/cleaning ----
 dd <-  dd_raw %>%
@@ -97,8 +104,7 @@ cat_demo_vars <- c(
   "ph.ecog", 
   "pat.karno",
   "sex"
-  
-)
+  )
 
 # Defining Performance Metrics
 perform_metrics <- c(
@@ -107,10 +113,18 @@ perform_metrics <- c(
   "pat.karno"
 )
 
+# Defining performance metric variables
+perform_metrics <- c("ph.ecog", 
+                     "ph.karno", 
+                     "pat.karno")
 
 ```
 
-# Exploratory Analysis
+# Results
+
+## Exploratory Analysis
+
+The demographic variables were plotted by sex and survival/censoring status. 
 
 ```{r}
 
@@ -171,7 +185,7 @@ dd %>%
 ```
 
 
-# Results
+## Determining differences between males and females
 
 ```{r}
 
@@ -185,7 +199,7 @@ t_test_ls <- lapply(cont_demo_vars, function(var){
   res <- t.test(out ~ sex, data = test_dd, paired= FALSE)
   dat <- data.frame(
     var = var, 
-    p_val = res$p.value
+    p_val = round(res$p.value, 3)
   )
   row.names(dat) <- NULL
   dat
@@ -195,19 +209,12 @@ t_test_ls <- lapply(cont_demo_vars, function(var){
 test_dd <- do.call('rbind', t_test_ls)
 
 test_dd %>%
-  kable(format = 'html')
+  kable(format = 'html') %>%
+  kable_styling(position = 'center')
 
 ```
 
 
-```{r}
-
-# Defining performance metric variables
-perform_metrics <- c("ph.ecog", 
-                     "ph.karno", 
-                     "pat.karno")
-
-```
 
 
 ```{r}
@@ -225,7 +232,8 @@ chi_sq_metric_by_sex <- lapply(perform_metrics, function(metric) {
     filter(!is.na(get(metric))) %>%
     spread(sex, n, fill = 0) %>%
     as.data.frame()
-  print(metric)
+  
+  
   row.names(tab) <- as.character(tab[, 1])
   tab[, 1] <- NULL
   
@@ -275,6 +283,7 @@ Fairly even distributions across continuous variables between sex. If anything, 
 
 ## Unique Combinations of ph.ecog and ph.karno
 
+
 ```{r}
 sum_mat <- dd_raw %>%
   group_by(ph.ecog, ph.karno) %>%
@@ -321,121 +330,7 @@ q1_plot
 
 Based on the scatter plot of ph.karno compared to ph.ecog, there seems to be a fair level of agreement between ph.karno and ph.ecog. A spearman correlation of `r cor_val` shows a reasonable level of agreement between the two score scales. Those that were considered "asymptomatic" in the karnofsky scale fell mainly in the 90-100 score range for ph.karno. Both scores would indicate "good" scores. 
 
-## Survival Stratified by sex
 
-```{r}
-
-# Fitting original model, non-stratified and without left truncation
-fit_overall <- survfit(Surv(time, status) ~ 1, data = dd)
-
-# Fitting original model, stratified and without left truncation
-fit_0 <- survfit(Surv(time , status) ~ sex, 
-                 data = dd)
-
-# Using ggsurvplot to plot Kaplan Meier curves for model without left truncation
-kap_plot_no_lt <- ggsurvplot(fit_0, 
-                             data = dd,
-                             conf.int = TRUE,
-                             risk.table = TRUE,
-                             pval = TRUE,  
-                             surv.median.line = 'h')
-
-kap_plot_no_lt
-
-```
-
-The plot above represents a Kaplan meier plot for overall survival time, stratified by sex. 95% confidence intervals around the estimated survival probability are included in kaplan meier curves, as well as a horizontal line denoting the median survival time (the point at which the survival probability drops below 50%). In addition, the p-value from a log-rank test between survival curves is included on the plot. From visual inspection, it appears there is some separation between survival curves, possibly indicating that Females are more likely to survive compared to males. This is evidenced by portions of the graph where the confidence intervals do not overlap, as well as from the log-rank test p-value.  The median survival times by strata, as well as overall, are shown below. 
-
-```{r med_survival_times}
-
-# Getting the median survival times from the survival model summary tables
-sum_overall <- data.frame(t(summary(fit_overall)$table))
-sum_grps <- data.frame(summary(fit_0)$table)
-
-# Combining into a table
-sum_both <- rbind(sum_overall, sum_grps)
-
-### Median survival times ----
-med_table <- data.frame(
-  group = c("Overall", row.names(sum_grps)), 
-  med_time = sum_both$median
-) %>%
-  kable(col.names = c("Group", "Median Survival Time (years)"),
-        digits = 2, 
-        format = 'latex')
-
-med_table
-
-```
-
-## Question 3:
-
-*A potential source of bias is if patients may enter the study after time 0 and are excluded if they died after time 0 but prior to entering the study (left truncation). Why is this a problem, and how would you address it?*
-  
-  ```{r}
-
-
-# Fit model accounting for left truncation
-fit_left_trunc <- survfit(Surv(time, 
-                               age+time,  
-                               status) ~ sex, data = dd)
-
-# Use score test from coxph model, to get p-value equivalent to log-rank test
-# between strata
-fit0 <- coxph(Surv(time,
-                   age+time,
-                   status) ~ factor(sex),
-              data = dd)
-
-# Testing proportional hazards assumption
-test.ph <- cox.zph(fit0)
-
-# Using assertthat to stop the code if the proportional hazards assumption is not met
-assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
-                        msg = "Proportional Hazards Assumption Not met")
-
-# getting summary object of fit
-sum <- summary(fit0)
-
-# getting p_val from score test
-p_val <- round(sum$sctest[3], 3)
-
-# Including kaplan meier curves from model including left truncation, 
-# including p-value where test statistic comes from coxph score test
-kap_plot_left_trunc <- ggsurvplot(fit_left_trunc, 
-                                  conf.int = TRUE,
-                                  risk.table = TRUE,
-                                  pval = round(p_val, 3))
-
-
-
-```
-
-
-The outcome of interest in this case is survival (alive at last follow-up vs. death). For a subject to be included in this cohort, they would need to have survived until the start of the study. If there is a subset of the population that tends to have shorter survival times, they could be less likely to be included in the study. For example, many studies show that women live longer than men, so if men die after time 0 but before they have entered the study, the analysis could be biased towards men that survive longer than average.
-
-To address this potential source of bias, a survival model is used that uses interval that covers both their follow-up time as well as age (which is assumed to be the age at initial screening). 
-
-#### Comparing intervals from model accounting for left truncation to model without left truncation
-
-```{r}
-attach(dd)
-
-head(cbind(Surv(time, age+time, status), dd[, c("time", "status", "age", "sex")]))
-
-head(cbind(Surv(time, status), dd[, c("time", "status", "age", "sex")]))
-
-detach(dd)
-
-```
-
-```{r, fig.height = 6}
-
-kap_plot_left_trunc
-
-```
-
-After including the subjects' age in the survival model, we see that the survival curves are almost completely overlapping. In addition, the log-rank test p-value shows that the Kaplan Meier curves are not significantly different. 
 
 ## Agreement between physician and rater
 
@@ -503,7 +398,124 @@ corr_plot
 
 The correlation between physician and patient Karnofsky score was `r round(cor_val, 2)`. Since this correlation is relatively low, it would be interesting to determine whether the physician or patient score was more closely related to survival. 
 
-### Independent Variable Hazard Ratios ----
+
+# Survival Analysis
+
+## Survival Stratified by sex
+
+```{r}
+
+# Fitting original model, non-stratified and without left truncation
+fit_overall <- survfit(Surv(time, status) ~ 1, data = dd)
+
+# Fitting original model, stratified and without left truncation
+fit_0 <- survfit(Surv(time , status) ~ sex, 
+                 data = dd)
+
+# Using ggsurvplot to plot Kaplan Meier curves for model without left truncation
+kap_plot_no_lt <- ggsurvplot(fit_0, 
+                             data = dd,
+                             conf.int = TRUE,
+                             risk.table = TRUE,
+                             pval = TRUE,  
+                             surv.median.line = 'h')
+
+kap_plot_no_lt
+
+```
+
+The plot above represents a Kaplan meier plot for overall survival time, stratified by sex. 95% confidence intervals around the estimated survival probability are included in kaplan meier curves, as well as a horizontal line denoting the median survival time (the point at which the survival probability drops below 50%). In addition, the p-value from a log-rank test between survival curves is included on the plot. From visual inspection, it appears there is some separation between survival curves, possibly indicating that Females are more likely to survive compared to males. This is evidenced by portions of the graph where the confidence intervals do not overlap, as well as from the log-rank test p-value.  The median survival times by strata, as well as overall, are shown below. 
+
+```{r med_survival_times}
+
+# Getting the median survival times from the survival model summary tables
+sum_overall <- data.frame(t(summary(fit_overall)$table))
+sum_grps <- data.frame(summary(fit_0)$table)
+
+# Combining into a table
+sum_both <- rbind(sum_overall, sum_grps)
+
+### Median survival times ----
+med_table <- data.frame(
+  group = c("Overall", row.names(sum_grps)), 
+  med_time = sum_both$median
+) %>%
+  kable(col.names = c("Group", "Median Survival Time (years)"),
+        digits = 2, 
+        format = 'latex')
+
+med_table
+
+```
+
+## Accounting for left truncation
+
+Since this study only considered patients that were alive at the start of the study time, patients that died before the start of the study were obviously excluded from the analysis. As a a result, there is a potential source of bias due to the fact that one had to survive long enough in order to be included in the study. If there is a subset of the population that tends to have shorter survival times, they could be less likely to be included in the study. For example, many studies show that women live longer than men, so if men die after time 0 but before they have entered the study, the analysis could be biased towards men that survive longer than average.
+
+This is an example of left-truncation, and we need to adjust for this potential source of bias in the drawing of Kaplan Meier curves and the calculation of test statistics. Using patients' age, patients are only considered part of the risk set once their *age*+*time_in_study* has reached a certain time. 
+The adjustment to the `Surv()` call is shown below. 
+
+```{r}
+
+
+# Fit model accounting for left truncation
+fit_left_trunc <- survfit(Surv(time, 
+                               age+time,  
+                               status) ~ sex, data = dd)
+
+# Use score test from coxph model, to get p-value equivalent to log-rank test
+# between strata
+fit0 <- coxph(Surv(time,
+                   age+time,
+                   status) ~ factor(sex),
+              data = dd)
+
+# Testing proportional hazards assumption
+test.ph <- cox.zph(fit0)
+
+# Using assertthat to stop the code if the proportional hazards assumption is not met
+assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
+                        msg = "Proportional Hazards Assumption Not met")
+
+# getting summary object of fit
+sum <- summary(fit0)
+
+# getting p_val from score test
+p_val <- round(sum$sctest[3], 3)
+
+# Including kaplan meier curves from model including left truncation, 
+# including p-value where test statistic comes from coxph score test
+kap_plot_left_trunc <- ggsurvplot(fit_left_trunc, 
+                                  conf.int = TRUE,
+                                  risk.table = TRUE,
+                                  pval = round(p_val, 3))
+
+
+
+```
+
+### Comparing intervals from model accounting for left truncation to model without left truncation
+
+```{r}
+attach(dd)
+
+head(cbind(Surv(time, age+time, status), dd[, c("time", "status", "age", "sex")]))
+
+head(cbind(Surv(time, status), dd[, c("time", "status", "age", "sex")]))
+
+detach(dd)
+
+```
+
+```{r, fig.height = 6}
+
+kap_plot_left_trunc
+
+```
+
+After including the subjects' age in the survival model, we see that the survival curves are almost completely overlapping. In addition, the log-rank test p-value shows that the Kaplan Meier curves are not significantly different. 
+
+## Independent Variable Hazard Ratios ----
 
 Exploratory analyses revealed possible associations between survival status and performance metric variables. The performance metrics (measured both by physician and patient), were included in separate Cox proportional hazards models for each variable (as opposed to including all variables in one model, which might cause over fitting). The survival model accounted for left truncation. The variables Sex, Meal.cal, and wt.loss were included for completeness. Each performance metric was modeled as a ordinal variable, since the scales use discrete values when measured. Each hazard ratio is compared to lowest observed factor level (ph.ecog = 0, ph.karno = 50, pat.karno = 30).
 
@@ -612,7 +624,7 @@ hr_plot
 
 In general, 95% confidence intervals around the hazard ratios revealed no significant differences between each level of performance predictor and its respective reference level. There is no evidence here that physician rating is any more related to survival than patient rating. Since the performance scores have many levels, and since the hazard ratio is a comparison to the reference levels of each performance score,  additional analyses will be performed to examine overall differences between score groups. 
 
-### Survival Curves in performance metrics
+## Survival Curves in performance metrics
 
 Since the hazard ratios only compare to a reference level in each performance metric, survival curves were constructed for each level of the performance metric variables and the score test (equivalent to log-rank test) was used to determine overall differences between survival curves among the performance score variables. The survival model used here accounted for left truncation. 
 
@@ -679,40 +691,38 @@ Since the hazard ratios only compare to a reference level in each performance me
                            conf.int = TRUE,
                            pval = log_rank_test_dd$p_val[3])
          
+```
          
          
-         ```
+### ph.ecog
          
+```{r}
          
-         #### ph.ecog
+p_1
          
-         ```{r}
+```
          
-         p_1
+### ph.karno
          
-         ```
+```{r}
          
-         #### ph.karno
+p_2
          
-         ```{r}
+```
          
-         p_2
+### pat.karno
          
-         ```
+```{r}
          
-         #### pat.karno
+p_3
          
-         ```{r}
+```
          
-         p_3
+Log-rank tests did not show a difference between survival curves for physician measured or patient measured performance. There was slightly more evidence for differences between groups in the patient scored variable; however, there were many levels and some of the levels had very few observations, which might bias the results. 
          
-         ```
+### Median split differences between survival curves
          
-         Log-rank tests did not show a difference between survival curves for physician measured or patient measured performance. There was slightly more evidence for differences between groups in the patient scored variable; however, there were many levels and some of the levels had very few observations, which might bias the results. 
-         
-         ### Median split differences between survival curves
-         
-         To further compare patient vs. physician scores, each subject's score was compared to the median for a given score. Median values for each score are shown in the table below. The median split groups were used in separate cox proportional hazards models for each variable. The survival model used accounted for left-truncation. 
+To further compare patient vs. physician scores, each subject's score was compared to the median for a given score. Median values for each score are shown in the table below. The median split groups were used in separate cox proportional hazards models for each variable. The survival model used accounted for left-truncation. 
 
 ```{r}
 
@@ -825,7 +835,7 @@ https://www.compassus.com/sparkle-assets/documents/karnofsky_performance_status_
 
 
 
-#### Ph.ecog
+### Ph.ecog
 
 ```{r}
 
@@ -833,7 +843,7 @@ p_1_med_split
 
 ```
 
-#### ph.karno
+### ph.karno
 
 ```{r}
 
@@ -841,7 +851,7 @@ p_2_med_split
 
 ```
 
-#### pat.karno
+### pat.karno
 
 ```{r}
 

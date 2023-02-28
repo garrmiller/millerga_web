@@ -1,7 +1,8 @@
 ---
 title: "This is a work in progress"
 ---
-```{r setup}
+```{r setup, echo = FALSE}
+
 options(knitr.duplicate.label = "allow")
 ```
 
