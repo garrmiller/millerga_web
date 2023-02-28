@@ -1,0 +1,858 @@
+---
+title: "Lung Survival Example"
+author: "Garrett Miller"
+self_contained: true
+date: ""
+output: html_document
+header-includes:
+  - \usepackage{xcolor}
+---
+  
+  ```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kableExtra)
+library(survminer)
+library(survival)
+
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  message = FALSE, 
+  warning = FALSE, 
+  fig.height = 6, 
+  fig.width = 8)
+
+
+file_name <- 'lung.csv'
+
+```
+
+# Introduction
+
+The purpose of this report is to summarize the results from an analysis on the NCCTG Lung cancer data set `r file_name`. 
+
+# Variables
+
+* inst:	Institution code
+
+* time:	Survival time in days
+
+* status:	censoring status 1=censored, 2=dead
+
+* age:	Age in years
+
+* sex:	Male=1 Female=2
+
+* ph.ecog:	ECOG performance score as rated by the physician. 0=asymptomatic, 1= symptomatic but completely ambulatory, 2= in bed <50% of the day, 3= in bed > 50% of the day but not bedbound, 4 = bedbound
+
+* ph.karno:	Karnofsky performance score (bad=0-good=100) rated by physician
+
+* pat.karno:	Karnofsky performance score as rated by patient
+
+* meal.cal:	Calories consumed at meals
+
+* wt.loss:	Weight loss in last six months (pounds)
+
+# Methods
+
+Data were examined for missing values, but no missing values were imputed. Confidence intervals are based on an alpha on 0.05. Performance score variables (ph.ecog, ph.karno, pat.karno), were treated as ordinal factor variables, since the scores are discrete values. Age, wt.loss, and meal.cal were considered as continuous variables. Histograms and scatterplots were used to summarize variables of interest. Kaplan-Meier curves were used to compare survival between males and females. Cox proportional hazards models (coxPH) were used to obtain hazard ratios on variables on interest. In addition, the coxPH models were used to determine a test statistic equivalent to the log-rank test, as the log-rank test was unavailable for survival models that accounted for left-truncation. The models were checked to meet the proportional hazards assumption. All analyses were performed in R (4.2.2). 
+
+# Data
+
+```{r}
+data(cancer, package="survival")
+dd_raw <- get(data("lung"))
+(dim(dd_raw))
+
+
+# Data prep/cleaning ----
+dd <-  dd_raw %>%
+  # Reducing status to 0/1 from 1/2
+  mutate(across(status , ~. - 1)) %>%
+  # Setting levels of ph.ecog variable
+  mutate(across(ph.ecog, ~factor(., levels = c(0:4)))) %>%
+  # Setting levels of ph.karno variable
+  mutate(across(ph.karno, ~factor(., levels = seq(50, 100, 10)))) %>%
+  # Setting levels of pat.karno variable
+  mutate(across(pat.karno, ~factor(., levels = seq(30, 100, 10)))) %>%
+  # Converting sex to factor, keeping as 1/2
+  mutate(across(sex, ~factor(as.character(.), levels = c(1, 2), 
+                             labels = c("Male", "Female")))) %>%
+  # Make survival time in the same units as age, to include age in 
+  # survival analysis accounting for left-truncation
+  mutate(across(time, ~./365.25))
+
+
+# Defining continuous variables
+cont_demo_vars <- c(
+  "age", 
+  "meal.cal", 
+  "wt.loss"
+)
+
+# Defining categorical variables
+cat_demo_vars <- c(
+  "ph.karno", 
+  "ph.ecog", 
+  "pat.karno",
+  "sex"
+  
+)
+
+# Defining Performance Metrics
+perform_metrics <- c(
+  "ph.ecog", 
+  "ph.karno", 
+  "pat.karno"
+)
+
+
+```
+
+# Exploratory Analysis
+
+```{r}
+
+## Examine presence of missing values
+n_nas <- data.frame(
+  do.call('rbind', apply(dd, 2, function(x){table(is.na(x))}))
+)
+
+names(n_nas) <- c("Non-Missing", "Missing")
+
+# Output NAs as a table
+n_nas %>%
+  kable(format = 'latex') %>%
+  kable_styling ()
+
+
+```
+
+```{r}
+
+
+# Creating boxplot to examine distributions of variables, 
+dd %>%
+  select(sex, all_of(cont_demo_vars),
+         all_of(cat_demo_vars)) %>%
+  # Converting sex to character
+  mutate(across(sex ,as.character)) %>%
+  # Converting other variables to numeric
+  mutate(across(age:pat.karno, as.numeric)) %>%
+  # Making data long to use facet wrap
+  pivot_longer(names(.)[-1]) %>%
+  # Passing to ggplot
+  ggplot(aes(x = value, fill = sex, group = sex)) +
+  geom_histogram(position = 'dodge') + 
+  facet_wrap(. ~ name, scales = 'free')
+
+
+```
+
+It appears that Males had slightly higher levels of self reported Karnofsky scores compared to females
+
+```{r}
+
+
+# Plotting demographic and score variables by survival status
+dd %>%
+  select(status, all_of(cont_demo_vars),
+         all_of(cat_demo_vars)) %>%
+  select(-sex) %>%
+  mutate(across(status ,as.character)) %>%
+  mutate(across(age:pat.karno, as.numeric)) %>%
+  pivot_longer(names(.)[-1]) %>%
+  ggplot(aes(x = value, fill = status, group = status)) +
+  geom_histogram(position = 'dodge') + 
+  facet_wrap(. ~ name, scales = 'free')
+
+
+```
+
+
+# Results
+
+```{r}
+
+
+# Looping over continuous variables, using t.test to determine 
+# if there is a difference between males and females in these variables
+t_test_ls <- lapply(cont_demo_vars, function(var){
+  test_dd <- dd %>%
+    select(sex, out = one_of(var)) 
+  
+  res <- t.test(out ~ sex, data = test_dd, paired= FALSE)
+  dat <- data.frame(
+    var = var, 
+    p_val = res$p.value
+  )
+  row.names(dat) <- NULL
+  dat
+})
+
+# Combining list into dataframe
+test_dd <- do.call('rbind', t_test_ls)
+
+test_dd %>%
+  kable(format = 'html')
+
+```
+
+
+```{r}
+
+# Defining performance metric variables
+perform_metrics <- c("ph.ecog", 
+                     "ph.karno", 
+                     "pat.karno")
+
+```
+
+
+```{r}
+
+
+# Using chi-squared test to determine if there are differences between males/females 
+# in these variables
+chi_sq_metric_by_sex <- lapply(perform_metrics, function(metric) {
+  
+  tab <- dd %>%
+    select(sex, all_of(metric)) %>%
+    mutate(across(all_of(metric), factor)) %>%
+    group_by_at(names(.)) %>%
+    dplyr::summarise(n = n()) %>%
+    filter(!is.na(get(metric))) %>%
+    spread(sex, n, fill = 0) %>%
+    as.data.frame()
+  print(metric)
+  row.names(tab) <- as.character(tab[, 1])
+  tab[, 1] <- NULL
+  
+  res <- chisq.test(tab)
+  data.frame(
+    var = metric, 
+    p_val = res$p.value
+  )
+  
+})
+
+
+chi_sq_metric_by_sex
+
+
+chi_sq_metric_by_status <- lapply(perform_metrics, function(metric) {
+  
+  tab <- dd %>%
+    select(status, all_of(metric)) %>%
+    mutate(across(all_of(metric), factor)) %>%
+    group_by_at(names(.)) %>%
+    dplyr::summarise(n = n()) %>%
+    filter(!is.na(get(metric))) %>%
+    spread(status, n, fill = 0) %>%
+    as.data.frame()
+  print(metric)
+  row.names(tab) <- as.character(tab[, 1])
+  tab[, 1] <- NULL
+  
+  res <- chisq.test(tab)
+  data.frame(
+    var = metric, 
+    p_val = res$p.value
+  )
+  
+})
+
+chi_sq_metric_by_status
+
+
+```
+
+
+
+
+Fairly even distributions across continuous variables between sex. If anything, age, meal.cal, and wt.loss have some difference between groups, but these seem to make  some intuitive sense 
+
+## Unique Combinations of ph.ecog and ph.karno
+
+```{r}
+sum_mat <- dd_raw %>%
+  group_by(ph.ecog, ph.karno) %>%
+  dplyr::summarise(n = n()) 
+
+unique_combinations <-   sum_mat %>%
+  filter(n > 0) %>%
+  arrange(desc(n))
+
+dat <- dd %>%
+  select(ph.ecog, ph.karno) %>%
+  na.omit()
+
+unique_combinations %>%
+  kable(format = 'latex')
+
+# Determine spearman rank correlation coefficient between the two variables
+cor_val <- cor(as.numeric(dat$ph.ecog), as.numeric(dat$ph.karno), 
+               method = 'spearman')
+
+# Plot ph.ecog and ph.karno as a scatterplot with correlation coefficient
+q1_plot <- dd %>%
+  select(ph.ecog, ph.karno) %>%
+  ggplot(aes(x = ph.ecog, y = ph.karno)) + 
+  geom_point(position = position_jitter(width = .1, height = 1)) + 
+  geom_label(x = "3", y = "100", label = round(cor_val ,2))
+
+# Creating barplot comparing overall distribution of the two measures
+dd %>%
+  select(sex, ph.karno, ph.ecog) %>%
+  pivot_longer(names(.)[-1]) %>%
+  ggplot(aes(x = value)) + 
+  geom_histogram(stat = 'count') +
+  facet_wrap(. ~ name, scales = 'free')
+
+```
+
+There were `r nrow(unique_combinations)` unique combinations of *ph.karno* and *ph.ecog* in the data. This includes `r nrow(subset(unique_combinations, is.na(ph.karno)))` case(s) where *ph.karno* was *NA* and *ph.ecog* was not, as well as `r nrow(subset(unique_combinations, is.na(ph.karno)))` case(s) where *ph.ecog* was *NA* and *ph.karno* was not.
+
+```{r}
+q1_plot
+
+```
+
+Based on the scatter plot of ph.karno compared to ph.ecog, there seems to be a fair level of agreement between ph.karno and ph.ecog. A spearman correlation of `r cor_val` shows a reasonable level of agreement between the two score scales. Those that were considered "asymptomatic" in the karnofsky scale fell mainly in the 90-100 score range for ph.karno. Both scores would indicate "good" scores. 
+
+## Survival Stratified by sex
+
+```{r}
+
+# Fitting original model, non-stratified and without left truncation
+fit_overall <- survfit(Surv(time, status) ~ 1, data = dd)
+
+# Fitting original model, stratified and without left truncation
+fit_0 <- survfit(Surv(time , status) ~ sex, 
+                 data = dd)
+
+# Using ggsurvplot to plot Kaplan Meier curves for model without left truncation
+kap_plot_no_lt <- ggsurvplot(fit_0, 
+                             data = dd,
+                             conf.int = TRUE,
+                             risk.table = TRUE,
+                             pval = TRUE,  
+                             surv.median.line = 'h')
+
+kap_plot_no_lt
+
+```
+
+The plot above represents a Kaplan meier plot for overall survival time, stratified by sex. 95% confidence intervals around the estimated survival probability are included in kaplan meier curves, as well as a horizontal line denoting the median survival time (the point at which the survival probability drops below 50%). In addition, the p-value from a log-rank test between survival curves is included on the plot. From visual inspection, it appears there is some separation between survival curves, possibly indicating that Females are more likely to survive compared to males. This is evidenced by portions of the graph where the confidence intervals do not overlap, as well as from the log-rank test p-value.  The median survival times by strata, as well as overall, are shown below. 
+
+```{r med_survival_times}
+
+# Getting the median survival times from the survival model summary tables
+sum_overall <- data.frame(t(summary(fit_overall)$table))
+sum_grps <- data.frame(summary(fit_0)$table)
+
+# Combining into a table
+sum_both <- rbind(sum_overall, sum_grps)
+
+### Median survival times ----
+med_table <- data.frame(
+  group = c("Overall", row.names(sum_grps)), 
+  med_time = sum_both$median
+) %>%
+  kable(col.names = c("Group", "Median Survival Time (years)"),
+        digits = 2, 
+        format = 'latex')
+
+med_table
+
+```
+
+## Question 3:
+
+*A potential source of bias is if patients may enter the study after time 0 and are excluded if they died after time 0 but prior to entering the study (left truncation). Why is this a problem, and how would you address it?*
+  
+  ```{r}
+
+
+# Fit model accounting for left truncation
+fit_left_trunc <- survfit(Surv(time, 
+                               age+time,  
+                               status) ~ sex, data = dd)
+
+# Use score test from coxph model, to get p-value equivalent to log-rank test
+# between strata
+fit0 <- coxph(Surv(time,
+                   age+time,
+                   status) ~ factor(sex),
+              data = dd)
+
+# Testing proportional hazards assumption
+test.ph <- cox.zph(fit0)
+
+# Using assertthat to stop the code if the proportional hazards assumption is not met
+assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
+                        msg = "Proportional Hazards Assumption Not met")
+
+# getting summary object of fit
+sum <- summary(fit0)
+
+# getting p_val from score test
+p_val <- round(sum$sctest[3], 3)
+
+# Including kaplan meier curves from model including left truncation, 
+# including p-value where test statistic comes from coxph score test
+kap_plot_left_trunc <- ggsurvplot(fit_left_trunc, 
+                                  conf.int = TRUE,
+                                  risk.table = TRUE,
+                                  pval = round(p_val, 3))
+
+
+
+```
+
+
+The outcome of interest in this case is survival (alive at last follow-up vs. death). For a subject to be included in this cohort, they would need to have survived until the start of the study. If there is a subset of the population that tends to have shorter survival times, they could be less likely to be included in the study. For example, many studies show that women live longer than men, so if men die after time 0 but before they have entered the study, the analysis could be biased towards men that survive longer than average.
+
+To address this potential source of bias, a survival model is used that uses interval that covers both their follow-up time as well as age (which is assumed to be the age at initial screening). 
+
+#### Comparing intervals from model accounting for left truncation to model without left truncation
+
+```{r}
+attach(dd)
+
+head(cbind(Surv(time, age+time, status), dd[, c("time", "status", "age", "sex")]))
+
+head(cbind(Surv(time, status), dd[, c("time", "status", "age", "sex")]))
+
+detach(dd)
+
+```
+
+```{r, fig.height = 6}
+
+kap_plot_left_trunc
+
+```
+
+After including the subjects' age in the survival model, we see that the survival curves are almost completely overlapping. In addition, the log-rank test p-value shows that the Kaplan Meier curves are not significantly different. 
+
+## Agreement between physician and rater
+
+An analysis was performed to determine whether the patient recorded performance score and the physician score were related in the Karnofsky scale.  
+
+```{r}
+
+### Looking at agreement between patient and physician ----
+cont_tab <- dd %>%
+  # Creating pseudo_id to use in pivot_wider
+  mutate(id = 1:n()) %>%
+  # selecting variables of interest
+  select(id, ph.karno, pat.karno) %>%
+  pivot_longer(names(.)[-1]) %>%
+  filter(!is.na(value)) %>%
+  # Setting overall factor level for both scores
+  mutate(value = factor(value, seq(30, 100, 10))) %>%
+  pivot_wider() %>%
+  # Removing NAs
+  na.omit() 
+
+# Plotting patient and physician scores as histogram
+karno_bar_plot <- cont_tab %>%
+  # Making long to summarize by variable
+  pivot_longer(names(.)[-1]) %>%
+  group_by(name, value) %>%
+  # calculating count by group
+  dplyr::summarise(n = n()) %>%
+  ungroup() %>%
+  group_by(name) %>%
+  # calculating percentage by group
+  mutate(pct = n/sum(n)) %>%
+  # passing to ggplot
+  ggplot(aes(x = value, y = pct, fill = name)) + 
+  geom_histogram(stat = 'identity', position = 'dodge') + 
+  # Adding labels
+  xlab('score') +
+  scale_fill_discrete('Rater')
+
+# Calculating spearman rank correlation coefficient between patient and physician
+cor_val <- cor(as.numeric(cont_tab$ph.karno), 
+           as.numeric(cont_tab$pat.karno), 
+           method = 'spearman')
+
+# Plotting measures as a scatterplot, with correlation coefficient
+corr_plot <- dd %>%
+  ggplot(aes(x = ph.karno, 
+             y = pat.karno)) + 
+  geom_point(position = position_jitter(width = 0.5, height = 0.5)) +
+  geom_text(x = "50", y = "40", color = 'red', label = round(cor_val, 2)) + 
+  ggtitle("Patient vs. Physician Karnofsky score")
+
+
+karno_bar_plot
+
+```
+
+The bar plot shows that the patient had generally lower values for themselves, compared to the physician score. While the mode for both scores was still 90, the patient scores had some observations below 50 and the minimum of the physician score was 50. It is possible that patients in general had lower perception of their own performance, compared to a physician assessment. 
+
+```{r}
+
+corr_plot
+
+```
+
+The correlation between physician and patient Karnofsky score was `r round(cor_val, 2)`. Since this correlation is relatively low, it would be interesting to determine whether the physician or patient score was more closely related to survival. 
+
+### Independent Variable Hazard Ratios ----
+
+Exploratory analyses revealed possible associations between survival status and performance metric variables. The performance metrics (measured both by physician and patient), were included in separate Cox proportional hazards models for each variable (as opposed to including all variables in one model, which might cause over fitting). The survival model accounted for left truncation. The variables Sex, Meal.cal, and wt.loss were included for completeness. Each performance metric was modeled as a ordinal variable, since the scales use discrete values when measured. Each hazard ratio is compared to lowest observed factor level (ph.ecog = 0, ph.karno = 50, pat.karno = 30).
+
+```{r}
+
+
+# independent variables to use in univariate coxph models
+ind_vars <- c(
+  "sex", 
+  "ph.ecog", 
+  "ph.karno", 
+  "pat.karno", 
+  "meal.cal", 
+  "wt.loss"
+)
+
+
+# Checking that there are at least 1 observation in each of dead/censored
+# in each level of the performance scores
+# Since there is only one observation in the censored group in ph.ecog == 3 group,
+# This value will be set to NA so it is not included in the coxph analysis
+
+dd %>%
+  select(status, one_of(perform_metrics)) %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(names(.)[-1]) %>%
+  group_by(status, value, name) %>%
+  dplyr::summarise(n = sum(!is.na(value))) %>%
+  spread(status, n) %>%
+  arrange(name) %>%
+  filter(is.na(`0`) | is.na(`1`))
+
+test_dd <- dd %>%
+  mutate(ph.ecog = factor(ph.ecog, levels = c(0:2)))
+
+hr_cox_ls <- lapply(ind_vars, function(x) {
+  
+  # Subset data to only include variables of interest
+  sub_dd <- test_dd %>%
+    select(status, age, time,  one_of(x)) 
+  
+  # Creating formula
+  f <- as.formula(paste0("Surv(time, age+time, status) ~ ", factor(x)))
+  
+  # running coxph model
+  res <- coxph(f, 
+               data = sub_dd)
+  
+  # testing proportional hazards assumption
+  test.ph <- cox.zph(res)
+  
+  # Breaking script if assumption not met
+  assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
+                          msg = "Proportional Hazards Assumption Not met")
+  
+  # Getting summary table
+  sum <- summary(res) 
+  
+  # Getting hazard ratio
+  hr <- sum$coefficients[, 2]
+  
+  # Getting standard error
+  se <- sum$coefficients[, 3]
+  
+  # calculating upper and lower bounds
+  lb <- hr-qnorm(1-0.05/2)*se
+  ub <- hr+qnorm(1-0.05/2)*se
+  
+  data.frame(
+    var = x, 
+    lvl = names(res$coefficients),
+    hr = hr, 
+    lb = lb, 
+    ub = ub, 
+    hr_pval = sum$coefficients[, 5]
+    )
+  
+})
+
+# Turning list into dataframe, changing labels of the variables and levels
+hr_cox_dd <- do.call('rbind', hr_cox_ls) %>%
+  mutate(lvl = gsub(paste0(var, collapse = '|'), "",lvl), 
+         var = ifelse(lvl == '', var, paste(var, lvl, sep = '=')), 
+         var = factor(var))
+
+# Passing data to a forrest plot, with 95% confidence intervals around hazard ratio estimate
+hr_plot <-
+  ggplot(data = hr_cox_dd, aes(x = hr, y = var)) +
+  geom_errorbar(aes(xmin = lb, xmax = ub)) + 
+    geom_vline(xintercept = 1, color = 'red', linetype = 'dashed') + 
+    geom_text(x = 5, aes(label = paste0("p=", round(hr_pval, 2)))) +
+    scale_x_continuous(limits = c(-3,6)) + 
+  xlab("Hazard Ratio (95% CI)") + 
+  ylab("Variable (level)")
+
+
+
+```
+
+
+```{r}
+
+hr_plot
+
+```
+
+In general, 95% confidence intervals around the hazard ratios revealed no significant differences between each level of performance predictor and its respective reference level. There is no evidence here that physician rating is any more related to survival than patient rating. Since the performance scores have many levels, and since the hazard ratio is a comparison to the reference levels of each performance score,  additional analyses will be performed to examine overall differences between score groups. 
+
+### Survival Curves in performance metrics
+
+Since the hazard ratios only compare to a reference level in each performance metric, survival curves were constructed for each level of the performance metric variables and the score test (equivalent to log-rank test) was used to determine overall differences between survival curves among the performance score variables. The survival model used here accounted for left truncation. 
+
+```{r}
+
+### Log-Rank tests for performance metrics ----
+#' Univariate analyses of the different performance metrics showed 
+         #' that no hazard ratios were significantly different than 1
+         #' Log-rank tests will be used to test for overall differences between 
+         #' survival curves.
+         #' Coxph score test will be used to calculate test statistic
+         
+         log_rank_test_ls <- lapply(perform_metrics, function(x) {
+           
+           # Defining formula
+           f <- as.formula(paste0("Surv(time, age+time, status) ~ factor(", x, ")"))
+           
+           # Running coxph model
+           fit0 <- coxph(f, 
+                         data = test_dd,
+                         # iter = 0,
+                         na.action = na.exclude)
+           
+           # Testing proportional hazards assumption
+           test.ph <- cox.zph(fit0)
+           
+           # Breaking script if assumption not met  
+           assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
+                                   msg = "Proportional Hazards Assumption Not met")
+           
+           # Getting summary table
+           sum <- summary(fit0)
+           
+           # Getting p-value from score test
+           p_val <- round(sum$sctest[3], 3)
+           
+           data.frame(
+             var = x, 
+             p_val = p_val
+           )
+           
+         })
+         
+         # Turning list to a dataframe
+         log_rank_test_dd <- do.call('rbind', log_rank_test_ls)
+         
+         # Creating plots for each variable, with p-value from test dataframe
+         p_1 <- ggsurvplot(survfit(Surv(time, 
+                                        age+time,
+                                        status) ~ ph.ecog, data = test_dd), 
+                           conf.int = TRUE,
+                           pval = log_rank_test_dd$p_val[1])
+         
+         p_2 <- ggsurvplot(survfit(Surv(time, 
+                                        age+time,  
+                                        status) ~ ph.karno, data = test_dd), 
+                           conf.int = TRUE,
+                           pval = log_rank_test_dd$p_val[2])
+         
+         
+         p_3 <- ggsurvplot(survfit(Surv(time, 
+                                        age+time,  
+                                        status) ~ pat.karno, data = test_dd), 
+                           conf.int = TRUE,
+                           pval = log_rank_test_dd$p_val[3])
+         
+         
+         
+         ```
+         
+         
+         #### ph.ecog
+         
+         ```{r}
+         
+         p_1
+         
+         ```
+         
+         #### ph.karno
+         
+         ```{r}
+         
+         p_2
+         
+         ```
+         
+         #### pat.karno
+         
+         ```{r}
+         
+         p_3
+         
+         ```
+         
+         Log-rank tests did not show a difference between survival curves for physician measured or patient measured performance. There was slightly more evidence for differences between groups in the patient scored variable; however, there were many levels and some of the levels had very few observations, which might bias the results. 
+         
+         ### Median split differences between survival curves
+         
+         To further compare patient vs. physician scores, each subject's score was compared to the median for a given score. Median values for each score are shown in the table below. The median split groups were used in separate cox proportional hazards models for each variable. The survival model used accounted for left-truncation. 
+
+```{r}
+
+med_dd <-  dd %>%
+  # Selecting variables
+  select(status, age, time, all_of(perform_metrics)) %>%
+  # Turning performance metrics to numeric
+  mutate(across(ph.ecog:pat.karno, as.numeric)) %>%
+  pivot_longer(ph.ecog:pat.karno) %>%
+  group_by(name) %>%
+  # Getting median value by each variable
+  dplyr::summarise(med = median(value, na.rm = TRUE)) %>%
+  group_by(name) %>%
+  # Getting the actual value of the reference level
+  mutate(med_val = levels(dd[, name])[med]) %>%
+  ungroup() 
+
+# Creating test dataframe, with new median split variable
+test_dd <- dd %>%
+  select(status, age, time, all_of(perform_metrics)) %>%
+  mutate(across(ph.ecog:pat.karno, as.numeric)) %>%
+  # Creating pseudo-id column to use in pivot_wider
+  mutate(id = 1:n()) %>%
+  pivot_longer(ph.ecog:pat.karno)  %>%
+  # Pulling in medians
+  left_join(med_dd, by = c("name")) %>%
+  mutate(value = as.numeric(value)) %>%
+  # Creating median split variable
+  mutate(med_split = case_when(
+    value < med ~ paste('Less than', med_val),
+    value >= med ~ paste('Greater than or equal to', med_val)
+    )) %>%
+  select(id, status, age, time, name, med_split) %>%
+  pivot_wider(values_from = 'med_split')
+
+# looping over performance metrics, testing difference between variables
+log_rank_test_ls <- lapply(perform_metrics, function(x) {
+  
+  # Subset data to variables of interest
+  sub_dd <- test_dd %>%
+    select(id:time, x = all_of(x))
+  
+  # Fitting coxph model
+  fit0 <- coxph(Surv(time, 
+                     age+time,
+                     status) ~ factor(x), 
+                data = sub_dd,
+                na.action = na.exclude)
+  
+  # Testing coxph assumption
+  test.ph <- cox.zph(fit0)
+  assertthat::assert_that(!any(test.ph$table[,'p'] <= 0.05), 
+                          msg = "Proportional Hazards Assumption Not met")
+  
+  # Getting p-value
+  sum <- summary(fit0)
+  p_val <- round(sum$sctest[3], 3)
+  
+  dat <- data.frame(
+    var = x, 
+    p_val = p_val
+  )
+  dat
+  })
+
+# turning list to dataframe
+log_rank_test_dd <- do.call('rbind', log_rank_test_ls)
+  
+# Creating plots on the median split variables, with p-value added
+p_1_med_split <- ggsurvplot(survfit(Surv(time, 
+                          age+time,
+                          status) ~ ph.ecog, 
+                     data = test_dd),
+                     pval = subset(log_rank_test_dd, 
+                                   var == "ph.ecog", 
+                                   p_val)[[1]],
+                     conf.int = TRUE)
+
+p_2_med_split <- ggsurvplot(survfit(Surv(time, 
+                               age+time,
+                               status) ~ ph.karno, 
+                          data = test_dd),
+                  pval = subset(log_rank_test_dd, 
+                                var == "ph.karno", 
+                                p_val)[[1]],
+                  conf.int = TRUE)
+
+p_3_med_split <- ggsurvplot(survfit(Surv(time, 
+                               age+time,
+                               status) ~ pat.karno, 
+                          data = test_dd),
+                  pval = subset(log_rank_test_dd, 
+                                var == "pat.karno", 
+                                p_val)[[1]],
+                  conf.int = TRUE)
+
+
+
+med_dd %>%
+  select(name, med_val) %>%
+  arrange(name) %>%
+  kable(col.names = c("Score Variable", "Median"), 
+        format = 'latex') 
+```
+
+
+Based on the definitions for each performance rating, the median values make intuitive sense to split the data on. For the ECOG score, values below 1 would be asymptomatic, while values >= 1 would be symptomatic. For the Karnofsky score (ph.karno and pat.karno), values below 80 would be below the *Able to carry on normal activity and to work. No
+special care needed.* condition as specified by: 
+https://www.compassus.com/sparkle-assets/documents/karnofsky_performance_status_scale.pdf
+
+
+
+#### Ph.ecog
+
+```{r}
+
+p_1_med_split
+
+```
+
+#### ph.karno
+
+```{r}
+
+p_2_med_split
+
+```
+
+#### pat.karno
+
+```{r}
+
+p_3_med_split
+
+```
+
+Based on the log-rank test p-values, as well as the overlapping confidence intervals, there was no difference between median-split survival curves for each performance variable. While there was a lower p-value for pat.karno compared to ph.karno, there is not enough evidence to conclude that physician scoring is any different than patient scoring, in terms of a relationship to survival. 
+
+# R Session Info
+
+```{r}
+sessionInfo()
+```
