@@ -12,5 +12,5 @@ options(knitr.duplicate.label = "allow")
 
 # Projects
 
-[**Survival analysis example**](docs/projects/lung_survival.html): Analysis of Lung cancer dataset from the survival package
+[**Survival analysis example**](projects/lung_survival.html): Analysis of Lung cancer dataset from the survival package
 
