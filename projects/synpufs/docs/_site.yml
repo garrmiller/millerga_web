@@ -1,0 +1,10 @@
+name: "Synpuf"
+navbar:
+  title: "Synpuf"
+  left:
+    - text: "Home"
+      href: index.html
+    - text: "Exploration"
+      href: ../notebooks/01_explore.html
+output_dir: "."
+

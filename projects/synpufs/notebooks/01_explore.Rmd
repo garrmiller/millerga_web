@@ -1,0 +1,15 @@
+---
+title: "SynPUF Drug Utilization - Exploration"
+
+output: html_document
+---
+
+```{r setup, include = FALSE}
+
+
+library(tidyverse)
+library(here)
+
+source(here("R/init.r"))
+
+```
