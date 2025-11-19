@@ -1,0 +1,17 @@
+--- 
+title: "Synpuf"
+output: html_document
+---
+
+
+# Overview
+
+Sample project
+
+- Claims
+
+## Repository
+
+## Notebooks
+- [Explore](../notebooks/01_explore.html)
+
